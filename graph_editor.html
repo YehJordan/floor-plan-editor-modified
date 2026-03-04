@@ -282,6 +282,9 @@ const MAX_HIST    = 60;
 const ZOOM_F      = 1.15;
 const MIN_ZOOM    = 0.04;
 const MAX_ZOOM    = 10;
+const LS_GRAPH       = 'fpeditor_graph';
+const LS_IMAGE       = 'fpeditor_image';
+const MAX_FILE_BYTES = 3 * 1024 * 1024; // 3 MB
 
 const NODE_TYPES = [
   'room','doorway','hallway_junction','hallway_waypoint',
@@ -566,6 +569,7 @@ function snap() {
   if (hist.length > MAX_HIST) hist.shift();
   histIdx = hist.length - 1;
   updateHistBtns(); mark();
+  saveGraph();
 }
 
 function undo() {
@@ -941,17 +945,69 @@ document.addEventListener('keydown', e => {
   }
 });
 
+// ── Persistence ───────────────────────────────────────────────────────────────
+function saveGraph() {
+  try { localStorage.setItem(LS_GRAPH, graphStr()); } catch { /* quota */ }
+}
+
+function saveImage(dataUrl) {
+  try {
+    localStorage.setItem(LS_IMAGE, dataUrl);
+  } catch {
+    alert('The image is too large to save in browser storage (localStorage quota exceeded).\n\nThe graph will still autosave, but you will need to reload the image after a page refresh.');
+  }
+}
+
+function restoreSession() {
+  const savedGraph = localStorage.getItem(LS_GRAPH);
+  if (savedGraph) {
+    try {
+      const d = JSON.parse(savedGraph);
+      graph.nodes = d.nodes || {};
+      graph.edges = d.edges || {};
+      // Resync counters so new node IDs don't collide with restored ones
+      for (const id in graph.nodes) {
+        const t = graph.nodes[id].type;
+        typeCnt[t] = (typeCnt[t] || 0) + 1;
+      }
+      edgeCnt = Object.keys(graph.edges).length;
+    } catch { /* corrupt data — start fresh */ }
+  }
+
+  const savedImg = localStorage.getItem(LS_IMAGE);
+  if (savedImg) {
+    const img = new Image();
+    img.onload = async () => {
+      bgW = img.naturalWidth;
+      bgH = img.naturalHeight;
+      bgImg = await createImageBitmap(img);
+      fitToView();
+    };
+    img.src = savedImg;
+  }
+}
+
 // ── File I/O ─────────────────────────────────────────────────────────────────
 async function loadImage(file) {
-  const url = URL.createObjectURL(file);
+  if (file.size > MAX_FILE_BYTES) {
+    alert(`Image too large: ${(file.size / 1024 / 1024).toFixed(1)} MB.\nMaximum allowed size is 3 MB.`);
+    return;
+  }
+  // Read as data URL so we can persist it in localStorage
+  const dataUrl = await new Promise((res, rej) => {
+    const r = new FileReader();
+    r.onload  = e => res(e.target.result);
+    r.onerror = rej;
+    r.readAsDataURL(file);
+  });
   const img = new Image();
-  img.src = url;
+  img.src = dataUrl;
   await img.decode();
   bgW = img.naturalWidth;
   bgH = img.naturalHeight;
   bgImg = await createImageBitmap(img);
-  URL.revokeObjectURL(url);
   fitToView();
+  saveImage(dataUrl);
 }
 
 function loadJSON(file) {
@@ -1041,7 +1097,8 @@ propsEl.addEventListener('keydown', e => {
 new ResizeObserver(resizeCanvas).observe(workspace);
 resizeCanvas();
 buildLegend();
-hist = [graphStr()]; histIdx = 0;   // initial empty snapshot
+restoreSession();
+hist = [graphStr()]; histIdx = 0;   // snapshot from restored (or empty) state
 updateHistBtns();
 render();
 </script>
