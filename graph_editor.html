@@ -174,7 +174,6 @@ select#node-type-sel { width: 130px; }
   <select id="node-type-sel" title="Node type for new placements">
     <option value="room">Room</option>
     <option value="doorway">Doorway</option>
-    <option value="hallway_junction">Hallway Junction</option>
     <option value="hallway_waypoint">Hallway Waypoint</option>
     <option value="stair_landing">Stair Landing</option>
     <option value="elevator_door">Elevator Door</option>
@@ -287,21 +286,19 @@ const LS_IMAGE       = 'fpeditor_image';
 const MAX_FILE_BYTES = 3 * 1024 * 1024; // 3 MB
 
 const NODE_TYPES = [
-  'room','doorway','hallway_junction','hallway_waypoint',
+  'room','doorway','hallway_waypoint',
   'stair_landing','elevator_door','building_entry_exit'
 ];
 const NODE_LABEL = {
-  room:'Room', doorway:'Doorway', hallway_junction:'Junction',
-  hallway_waypoint:'Waypoint', stair_landing:'Stair',
+  room:'Room', doorway:'Doorway', hallway_waypoint:'Waypoint', stair_landing:'Stair',
   elevator_door:'Elevator', building_entry_exit:'Entry/Exit'
 };
 const NODE_LETTER = {
-  room:'R', doorway:'D', hallway_junction:'J', hallway_waypoint:'W',
+  room:'R', doorway:'D', hallway_waypoint:'W',
   stair_landing:'S', elevator_door:'E', building_entry_exit:'B'
 };
 const NODE_COLOR = {
-  room:'#4a90e2', doorway:'#52c41a', hallway_junction:'#fa8c16',
-  hallway_waypoint:'#d4b106', stair_landing:'#e05c5c',
+  room:'#4a90e2', doorway:'#52c41a', hallway_waypoint:'#d4b106', stair_landing:'#e05c5c',
   elevator_door:'#9b59b6', building_entry_exit:'#00bcd4'
 };
 
@@ -309,18 +306,11 @@ const NODE_COLOR = {
 const EDGE_TYPE_MAP = {
   'doorway+room':                      'room_to_door',
   'building_entry_exit+doorway':       'room_to_door',
-  'doorway+hallway_junction':          'door_to_hallway',
   'doorway+hallway_waypoint':          'door_to_hallway',
   'doorway+stair_landing':             'door_to_hallway',
   'doorway+elevator_door':             'door_to_hallway',
-  'building_entry_exit+hallway_junction':  'hallway',
   'building_entry_exit+hallway_waypoint':  'hallway',
   'building_entry_exit+room':          'room_to_door',
-  'hallway_junction+hallway_junction': 'hallway',
-  'hallway_junction+hallway_waypoint': 'hallway',
-  'hallway_junction+room':             'door_to_hallway',
-  'hallway_junction+stair_landing':    'hallway',
-  'hallway_junction+elevator_door':    'hallway',
   'hallway_waypoint+hallway_waypoint': 'hallway',
   'hallway_waypoint+room':             'door_to_hallway',
   'stair_landing+stair_landing':       'stair',
