@@ -229,7 +229,7 @@ select#node-type-sel { width: 130px; }
           <input type="number" id="pn-y" placeholder="y">
         </div>
       </div>
-      <div class="pr pr-row">
+      <div class="pr pr-row" id="pn-acc-row">
         <input type="checkbox" id="pn-acc"><label for="pn-acc">Accessible</label>
       </div>
       <div class="pr"><label>Metadata (JSON)</label><textarea id="pn-meta">{}</textarea></div>
@@ -424,7 +424,7 @@ function addNode(wx, wy) {
     buildingId: document.getElementById('def-building').value.trim() || 'bldg',
     floor:      parseInt(document.getElementById('def-floor').value) || 1,
     x: Math.round(wx), y: Math.round(wy),
-    label: '', accessible: true, metadata: {}
+    label: '', accessible: type !== 'stair_landing', metadata: {}
   };
   snap(); return id;
 }
@@ -495,6 +495,7 @@ function showNodeProps(id) {
   document.getElementById('pn-x').value     = Math.round(n.x);
   document.getElementById('pn-y').value     = Math.round(n.y);
   document.getElementById('pn-acc').checked = n.accessible !== false;
+  document.getElementById('pn-acc-row').style.display = n.type === 'stair_landing' ? 'none' : '';
   try {
     document.getElementById('pn-meta').value = JSON.stringify(n.metadata || {}, null, 2);
   } catch { document.getElementById('pn-meta').value = '{}'; }
@@ -1012,6 +1013,9 @@ document.getElementById('tool-node').addEventListener('click',  () => setTool('n
 document.getElementById('tool-edge').addEventListener('click',  () => setTool('edge'));
 document.getElementById('btn-apply').addEventListener('click',  applyProps);
 document.getElementById('btn-del-sel').addEventListener('click',delSelected);
+document.getElementById('pn-type').addEventListener('change', e => {
+  document.getElementById('pn-acc-row').style.display = e.target.value === 'stair_landing' ? 'none' : '';
+});
 
 document.getElementById('in-img').addEventListener('change', e => {
   if (e.target.files[0]) loadImage(e.target.files[0]);
