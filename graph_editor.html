@@ -267,7 +267,7 @@ select#node-type-sel { width: 130px; }
   <span>Zoom: <span class="val" id="st-zoom">100%</span></span>
   <div class="sep" style="height:14px"></div>
   <div id="legend"></div>
-  <span id="hint">V · N · E · R · D · W &nbsp;|&nbsp; Del · Ctrl+Z/Y · Scroll · 0=fit</span>
+  <span id="hint">V · N · E · R · D · W &nbsp;|&nbsp; Drag to lasso · Shift+click · Del · Ctrl+Z/Y · Scroll · 0=fit</span>
 </div>
 
 <script>
@@ -325,8 +325,8 @@ let graph    = { nodes: {}, edges: {} };
 let typeCnt  = Object.fromEntries(NODE_TYPES.map(t => [t, 0]));
 let edgeCnt  = 0;
 
-let selNode  = null;  // selected node id
-let selEdge  = null;  // selected edge id
+let selNodes = new Set(); // selected node ids (multi-select)
+let selEdge  = null;      // selected edge id
 let tool     = 'select';
 let conSrc   = null;  // edge tool: first node id
 
@@ -338,9 +338,11 @@ let hist     = [];
 let histIdx  = -1;
 
 // interaction state
-let drag     = { on: false, id: null, offX: 0, offY: 0, moved: false };
-let panning  = { on: false, sx: 0, sy: 0, vx: 0, vy: 0 };
-let rubber   = { on: false, sx: 0, sy: 0 };
+let drag      = { on: false, id: null, offX: 0, offY: 0, moved: false };
+let multiDrag = { on: false, offsets: {}, moved: false };
+let panning   = { on: false, sx: 0, sy: 0, vx: 0, vy: 0 };
+let rubber    = { on: false, sx: 0, sy: 0 };
+let lasso     = { on: false, sx: 0, sy: 0, ex: 0, ey: 0 }; // screen coords
 
 let needsRedraw = true;
 
@@ -398,6 +400,9 @@ function ptSegDist(px, py, ax, ay, bx, by) {
   const t = Math.max(0, Math.min(1, ((px-ax)*dx+(py-ay)*dy)/lenSq));
   return Math.hypot(px-(ax+t*dx), py-(ay+t*dy));
 }
+
+// Returns the single selected node id, or null when 0 or >1 nodes are selected
+function getSelNode() { return selNodes.size === 1 ? [...selNodes][0] : null; }
 
 // ── ID generation ────────────────────────────────────────────────────────────
 function nextNodeId(type) {
@@ -457,22 +462,49 @@ function delEdge(id) {
 }
 
 function delSelected() {
-  if (selNode) { delNode(selNode); clearSel(); }
-  else if (selEdge) { delEdge(selEdge); clearSel(); }
+  if (selNodes.size > 0) {
+    [...selNodes].forEach(id => {
+      delete graph.nodes[id];
+      for (const eid in graph.edges) {
+        const e = graph.edges[eid];
+        if (e.source === id || e.target === id) delete graph.edges[eid];
+      }
+    });
+    clearSel(); snap();
+  } else if (selEdge) {
+    delEdge(selEdge); clearSel();
+  }
 }
 
 // ── Selection ────────────────────────────────────────────────────────────────
-function selectNode(id) {
-  selNode = id; selEdge = null; showNodeProps(id); mark();
+function selectNode(id, additive = false) {
+  if (additive) {
+    if (selNodes.has(id)) selNodes.delete(id); else selNodes.add(id);
+  } else {
+    selNodes = new Set([id]);
+  }
+  selEdge = null;
+  const sn = getSelNode();
+  if (sn) showNodeProps(sn); else updateMultiSelPanel();
+  mark();
 }
 function selectEdge(id) {
-  selEdge = id; selNode = null; showEdgeProps(id); mark();
+  selEdge = id; selNodes = new Set(); showEdgeProps(id); mark();
 }
 function clearSel() {
-  selNode = selEdge = conSrc = null;
-  rubber.on = false;
+  selNodes = new Set(); selEdge = null; conSrc = null;
+  rubber.on = false; lasso.on = false;
   propsEl.classList.remove('open');
   mark();
+}
+function updateMultiSelPanel() {
+  if (selNodes.size > 1) {
+    document.getElementById('props-title').textContent = `${selNodes.size} nodes selected`;
+    pnEl.style.display = 'none'; peEl.style.display = 'none';
+    propsEl.classList.add('open');
+  } else {
+    propsEl.classList.remove('open');
+  }
 }
 
 // ── Properties panel ─────────────────────────────────────────────────────────
@@ -507,6 +539,7 @@ function showEdgeProps(id) {
 }
 
 function applyProps() {
+  const selNode = getSelNode();
   if (selNode) {
     const n = graph.nodes[selNode]; if (!n) return;
     const newId = document.getElementById('pn-id').value.trim();
@@ -525,10 +558,10 @@ function applyProps() {
       }
       graph.nodes[newId] = { ...n, id: newId };
       delete graph.nodes[selNode];
-      selNode = newId;
+      selNodes = new Set([newId]);
     }
 
-    const node       = graph.nodes[selNode];
+    const node       = graph.nodes[getSelNode()];
     node.type        = document.getElementById('pn-type').value;
     node.label       = document.getElementById('pn-label').value.trim();
     node.buildingId  = document.getElementById('pn-bldg').value.trim();
@@ -588,7 +621,7 @@ function mark() { needsRedraw = true; }
 
 function render() {
   requestAnimationFrame(render);
-  if (!needsRedraw && !rubber.on) return;
+  if (!needsRedraw && !rubber.on && !lasso.on) return;
   needsRedraw = false;
 
   const W = canvas.width, H = canvas.height;
@@ -656,7 +689,7 @@ function render() {
   // Nodes
   for (const id in graph.nodes) {
     const n   = graph.nodes[id];
-    const sel = id === selNode || id === conSrc;
+    const sel = selNodes.has(id) || id === conSrc;
     const r   = NODE_R * invS;
 
     if (sel) {
@@ -694,6 +727,24 @@ function render() {
   }
 
   ctx.restore();
+
+  // Lasso selection rectangle — drawn in screen space
+  if (lasso.on) {
+    const lx = Math.min(lasso.sx, lasso.ex);
+    const ly = Math.min(lasso.sy, lasso.ey);
+    const lw = Math.abs(lasso.ex - lasso.sx);
+    const lh = Math.abs(lasso.ey - lasso.sy);
+    ctx.save();
+    ctx.fillStyle   = 'rgba(137,180,250,0.08)';
+    ctx.strokeStyle = '#89b4fa';
+    ctx.lineWidth   = 1.5;
+    ctx.setLineDash([5, 3]);
+    ctx.fillRect(lx, ly, lw, lh);
+    ctx.strokeRect(lx, ly, lw, lh);
+    ctx.setLineDash([]);
+    ctx.restore();
+  }
+
   updateStatusBar();
 }
 
@@ -788,20 +839,32 @@ canvas.addEventListener('mousedown', e => {
   if (tool === 'select') {
     const nid = hitNode(wm.x, wm.y);
     if (nid) {
-      drag.on = true; drag.id = nid; drag.moved = false;
-      drag.offX = wm.x - graph.nodes[nid].x;
-      drag.offY = wm.y - graph.nodes[nid].y;
-      selectNode(nid);
+      if (selNodes.has(nid) && selNodes.size > 1 && !e.shiftKey) {
+        // Drag all selected nodes together
+        multiDrag.on = true; multiDrag.moved = false; multiDrag.offsets = {};
+        selNodes.forEach(id => {
+          const n = graph.nodes[id];
+          if (n) multiDrag.offsets[id] = { offX: wm.x - n.x, offY: wm.y - n.y };
+        });
+      } else {
+        // Single-node drag (additive with Shift)
+        drag.on = true; drag.id = nid; drag.moved = false;
+        drag.offX = wm.x - graph.nodes[nid].x;
+        drag.offY = wm.y - graph.nodes[nid].y;
+        selectNode(nid, e.shiftKey);
+      }
     } else {
       const eid = hitEdge(wm.x, wm.y);
       if (eid) {
         selectEdge(eid);
       } else {
-        clearSel();
-        panning.on = true;
-        panning.sx = sm.x; panning.sy = sm.y;
-        panning.vx = view.x; panning.vy = view.y;
-        workspace.id && (workspace.className = 'mode-pan');
+        // Start lasso on empty space
+        if (!e.shiftKey) { selNodes = new Set(); selEdge = null; }
+        lasso.on = true;
+        lasso.sx = lasso.ex = sm.x;
+        lasso.sy = lasso.ey = sm.y;
+        propsEl.classList.remove('open');
+        mark();
       }
     }
 
@@ -831,14 +894,25 @@ canvas.addEventListener('mousemove', e => {
   const sm = canvasXY(e);
   const wm = s2w(sm.x, sm.y);
 
-  if (drag.on && drag.id) {
+  if (multiDrag.on) {
+    selNodes.forEach(id => {
+      const n = graph.nodes[id];
+      const off = multiDrag.offsets[id];
+      if (n && off) {
+        n.x = Math.round(wm.x - off.offX);
+        n.y = Math.round(wm.y - off.offY);
+      }
+    });
+    multiDrag.moved = true;
+    mark();
+  } else if (drag.on && drag.id) {
     const n = graph.nodes[drag.id];
     if (n) {
       n.x = Math.round(wm.x - drag.offX);
       n.y = Math.round(wm.y - drag.offY);
       drag.moved = true;
       // Update position fields in panel if open
-      if (selNode === drag.id && propsEl.classList.contains('open')) {
+      if (getSelNode() === drag.id && propsEl.classList.contains('open')) {
         document.getElementById('pn-x').value = n.x;
         document.getElementById('pn-y').value = n.y;
       }
@@ -850,13 +924,37 @@ canvas.addEventListener('mousemove', e => {
     mark();
   }
 
+  if (lasso.on)  { lasso.ex = sm.x; lasso.ey = sm.y; }
   if (rubber.on) { rubber.sx = sm.x; rubber.sy = sm.y; }
 });
 
 canvas.addEventListener('mouseup', e => {
+  if (multiDrag.on) {
+    if (multiDrag.moved) snap();
+    multiDrag.on = false; multiDrag.offsets = {};
+  }
   if (drag.on) {
-    if (drag.moved) snap(); // save position after drag
+    if (drag.moved) snap();
     drag.on = false; drag.id = null;
+  }
+  if (lasso.on) {
+    lasso.on = false;
+    // Convert lasso screen rect to world coords and collect enclosed nodes
+    const wx1 = (Math.min(lasso.sx, lasso.ex) - view.x) / view.scale;
+    const wy1 = (Math.min(lasso.sy, lasso.ey) - view.y) / view.scale;
+    const wx2 = (Math.max(lasso.sx, lasso.ex) - view.x) / view.scale;
+    const wy2 = (Math.max(lasso.sy, lasso.ey) - view.y) / view.scale;
+    const inRect = Object.keys(graph.nodes).filter(id => {
+      const n = graph.nodes[id];
+      return n.x >= wx1 && n.x <= wx2 && n.y >= wy1 && n.y <= wy2;
+    });
+    if (inRect.length > 0) {
+      inRect.forEach(id => selNodes.add(id));
+      selEdge = null;
+      const sn = getSelNode();
+      if (sn) showNodeProps(sn); else updateMultiSelPanel();
+    }
+    mark();
   }
   if (panning.on) {
     panning.on = false;
@@ -865,7 +963,9 @@ canvas.addEventListener('mouseup', e => {
 });
 
 canvas.addEventListener('mouseleave', () => {
-  if (panning.on) { panning.on = false; workspace.className = `mode-${tool}`; }
+  if (panning.on)   { panning.on = false; workspace.className = `mode-${tool}`; }
+  if (lasso.on)     { lasso.on = false; mark(); }
+  if (multiDrag.on) { if (multiDrag.moved) snap(); multiDrag.on = false; multiDrag.offsets = {}; }
 });
 
 canvas.addEventListener('wheel', e => {
