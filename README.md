@@ -7,7 +7,7 @@ Lightweight tools for converting architectural floor plan images into navigable 
 ## Tools
 
 ### `graph_editor.html` — Navigation Graph Editor
-A browser-based editor for placing navigation nodes on a floor plan image and connecting them with edges. Produces JSON files consumed directly by the React Native app's Dijkstra pathfinding engine.
+A browser-based editor for placing navigation nodes on a floor plan image and connecting them with edges. Produces JSON files consumed directly by the React Native app's Dijkstra pathfinding engine, and can also export an SVG overlay of the current view.
 
 **Open it:** just double-click the file or drag it into any browser — no server, no install, no build step.
 
@@ -16,6 +16,7 @@ A browser-based editor for placing navigation nodes on a floor plan image and co
 2. Use **N** to add a node
 2. Use **R**, **D**, **W** to place room, doorway, and waypoint nodes
 3. Switch to **E** (edge tool) and click two nodes to connect them
+4. Use **Export** for JSON and **SVG** for a visual floor-plan + graph export
 
 **Keyboard shortcuts:**
 
@@ -29,7 +30,8 @@ A browser-based editor for placing navigation nodes on a floor plan image and co
 | `W` | Place Waypoint node |
 | `Del` | Delete selected node or edge |
 | `Ctrl+Z / Y` | Undo / Redo |
-| `Ctrl+S` | Save |
+| `Ctrl+S` | Export JSON |
+| `Ctrl+Shift+S` | Export SVG |
 | `Ctrl+O` | Load graph JSON |
 | `0` | Fit view |
 | Scroll | Zoom |
@@ -42,7 +44,9 @@ A browser-based editor for placing navigation nodes on a floor plan image and co
 | R | Room | Blue |
 | D | Doorway | Green |
 | W | Hallway Waypoint | Yellow |
+| P | Point of Interest | Orange |
 | S | Stair Landing | Red |
+| C | Escalator | Pink |
 | E | Elevator Door | Purple |
 | B | Building Entry/Exit | Cyan |
 

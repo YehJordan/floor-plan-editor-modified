@@ -162,6 +162,7 @@ select#node-type-sel { width: 130px; }
   <button id="btn-load"   title="Load nav graph JSON — replaces current graph (Ctrl+O)">📂 Graph</button>
   <button id="btn-merge"  title="Merge one or more floor JSON files into the current graph">📥 Merge</button>
   <button id="btn-export" title="Export nav graph JSON (Ctrl+S)">💾 Export</button>
+  <button id="btn-export-svg" title="Export floor plan + graph overlay as SVG (Ctrl+Shift+S)">🖼️ SVG</button>
   <div class="sep"></div>
 
   <!-- Tools -->
@@ -176,7 +177,9 @@ select#node-type-sel { width: 130px; }
     <option value="room">Room</option>
     <option value="doorway">Doorway</option>
     <option value="hallway_waypoint">Hallway Waypoint</option>
+    <option value="point_of_interest">Point of Interest</option>
     <option value="stair_landing">Stair Landing</option>
+    <option value="escalator">Escalator</option>
     <option value="elevator_door">Elevator Door</option>
     <option value="building_entry_exit">Entry / Exit</option>
   </select>
@@ -222,7 +225,9 @@ select#node-type-sel { width: 130px; }
           <option value="doorway">Doorway</option>
           <option value="hallway_junction">Hallway Junction</option>
           <option value="hallway_waypoint">Hallway Waypoint</option>
+          <option value="point_of_interest">Point of Interest</option>
           <option value="stair_landing">Stair Landing</option>
+          <option value="escalator">Escalator</option>
           <option value="elevator_door">Elevator Door</option>
           <option value="building_entry_exit">Entry / Exit</option>
         </select>
@@ -309,23 +314,23 @@ const MAX_ZOOM    = 10;
 const LS_GRAPH       = 'fpeditor_graph';
 const LS_IMAGE       = 'fpeditor_image';
 const MAX_FILE_BYTES = 3 * 1024 * 1024; // 3 MB
-const CROSS_FLOOR_TYPES = new Set(['stair_landing', 'elevator_door']);
+const CROSS_FLOOR_TYPES = new Set(['stair_landing', 'escalator', 'elevator_door']);
 const CROSS_FLOOR_COLOR = '#ff79c6'; // magenta (Catppuccin pink)
 
 const NODE_TYPES = [
-  'room','doorway','hallway_waypoint',
-  'stair_landing','elevator_door','building_entry_exit'
+  'room','doorway','hallway_waypoint','point_of_interest',
+  'stair_landing','escalator','elevator_door','building_entry_exit'
 ];
 const NODE_LABEL = {
-  room:'Room', doorway:'Doorway', hallway_waypoint:'Waypoint', stair_landing:'Stair',
+  room:'Room', doorway:'Doorway', hallway_waypoint:'Waypoint', point_of_interest:'POI', stair_landing:'Stair', escalator:'Escalator',
   elevator_door:'Elevator', building_entry_exit:'Entry/Exit'
 };
 const NODE_LETTER = {
-  room:'R', doorway:'D', hallway_waypoint:'W',
-  stair_landing:'S', elevator_door:'E', building_entry_exit:'B'
+  room:'R', doorway:'D', hallway_waypoint:'W', point_of_interest:'P',
+  stair_landing:'S', escalator:'C', elevator_door:'E', building_entry_exit:'B'
 };
 const NODE_COLOR = {
-  room:'#4a90e2', doorway:'#52c41a', hallway_waypoint:'#d4b106', stair_landing:'#e05c5c',
+  room:'#4a90e2', doorway:'#52c41a', hallway_waypoint:'#d4b106', point_of_interest:'#ff8c42', stair_landing:'#e05c5c', escalator:'#ff5f87',
   elevator_door:'#9b59b6', building_entry_exit:'#00bcd4'
 };
 
@@ -334,13 +339,22 @@ const EDGE_TYPE_MAP = {
   'doorway+room':                      'room_to_door',
   'building_entry_exit+doorway':       'room_to_door',
   'doorway+hallway_waypoint':          'door_to_hallway',
+  'doorway+point_of_interest':         'door_to_hallway',
   'doorway+stair_landing':             'door_to_hallway',
+  'doorway+escalator':                 'door_to_hallway',
   'doorway+elevator_door':             'door_to_hallway',
   'building_entry_exit+hallway_waypoint':  'hallway',
+  'building_entry_exit+point_of_interest': 'hallway',
+  'building_entry_exit+escalator':     'hallway',
   'building_entry_exit+room':          'room_to_door',
   'hallway_waypoint+hallway_waypoint': 'hallway',
+  'hallway_waypoint+point_of_interest':'hallway',
+  'hallway_waypoint+escalator':        'hallway',
+  'point_of_interest+point_of_interest':'hallway',
   'hallway_waypoint+room':             'door_to_hallway',
+  'point_of_interest+room':            'door_to_hallway',
   'stair_landing+stair_landing':       'stair',
+  'escalator+escalator':               'stair',
   'elevator_door+elevator_door':       'elevator',
 };
 function inferEdgeType(ta, tb) {
@@ -360,6 +374,7 @@ let conSrc   = null;  // edge tool: first node id
 let view     = { x: 0, y: 0, scale: 1 };
 let bgImg    = null;
 let bgW = 0, bgH = 0;
+let bgDataUrl = null;
 
 let hist     = [];
 let histIdx  = -1;
@@ -560,7 +575,7 @@ function showNodeProps(id) {
   propsEl.classList.add('open');
 
   const cfSection = document.getElementById('pn-crossfloor');
-  const isVertical = (n.type === 'stair_landing' || n.type === 'elevator_door');
+  const isVertical = (n.type === 'stair_landing' || n.type === 'escalator' || n.type === 'elevator_door');
   cfSection.style.display = isVertical ? '' : 'none';
 
   if (isVertical) {
@@ -1116,6 +1131,7 @@ document.addEventListener('keydown', e => {
   if (e.ctrlKey || e.metaKey) {
     if      (e.key === 'z')                      { e.preventDefault(); undo(); }
     else if (e.key === 'y' || (e.shiftKey && e.key === 'Z')) { e.preventDefault(); redo(); }
+    else if (e.key === 's' && e.shiftKey)        { e.preventDefault(); exportSVG(); }
     else if (e.key === 's')                      { e.preventDefault(); exportJSON(); }
     else if (e.key === 'o')                      { e.preventDefault(); document.getElementById('in-json').click(); }
     return;
@@ -1176,6 +1192,7 @@ function restoreSession() {
 
   const savedImg = localStorage.getItem(LS_IMAGE);
   if (savedImg) {
+    bgDataUrl = savedImg;
     const img = new Image();
     img.onload = async () => {
       bgW = img.naturalWidth;
@@ -1207,6 +1224,7 @@ async function loadImage(file) {
   bgW = img.naturalWidth;
   bgH = img.naturalHeight;
   bgImg = await createImageBitmap(img);
+  bgDataUrl = dataUrl;
   fitToView();
   saveImage(dataUrl);
 }
@@ -1299,6 +1317,134 @@ function mergeJSONFiles(fileList) {
   });
 }
 
+function xmlEscape(str) {
+  return String(str)
+    .replaceAll('&', '&amp;')
+    .replaceAll('<', '&lt;')
+    .replaceAll('>', '&gt;')
+    .replaceAll('"', '&quot;')
+    .replaceAll("'", '&apos;');
+}
+
+function exportSVG() {
+  const activeFloor = floorFilter.size === 1 ? [...floorFilter][0] : null;
+  const visibleNodes = new Set(
+    Object.values(graph.nodes)
+      .filter(n => activeFloor === null || n.floor === activeFloor)
+      .map(n => n.id)
+  );
+
+  const nodes = Object.values(graph.nodes).filter(n => visibleNodes.has(n.id));
+  const edges = Object.values(graph.edges).filter(e => visibleNodes.has(e.source) || visibleNodes.has(e.target));
+
+  let viewBoxX = 0;
+  let viewBoxY = 0;
+  let viewBoxW = bgW || 1000;
+  let viewBoxH = bgH || 1000;
+
+  if (!bgDataUrl && nodes.length) {
+    const xs = nodes.map(n => n.x);
+    const ys = nodes.map(n => n.y);
+    const pad = 80;
+    const minX = Math.min(...xs) - pad;
+    const minY = Math.min(...ys) - pad;
+    const maxX = Math.max(...xs) + pad;
+    const maxY = Math.max(...ys) + pad;
+    viewBoxX = minX;
+    viewBoxY = minY;
+    viewBoxW = Math.max(1, maxX - minX);
+    viewBoxH = Math.max(1, maxY - minY);
+  }
+
+  const edgeLines = edges.map(e => {
+    const a = graph.nodes[e.source];
+    const b = graph.nodes[e.target];
+    if (!a || !b) return '';
+
+    const isCrossFloor = a.floor !== b.floor
+      && CROSS_FLOOR_TYPES.has(a.type)
+      && CROSS_FLOOR_TYPES.has(b.type);
+
+    const stroke = isCrossFloor
+      ? CROSS_FLOOR_COLOR
+      : (e.accessible === false ? '#f38ba8' : '#74c7ec');
+
+    const dashAttr = isCrossFloor ? ' stroke-dasharray="10 5"' : '';
+    const meta = {
+      id: e.id,
+      source: e.source,
+      target: e.target,
+      type: e.type,
+      weight: e.weight,
+      accessible: e.accessible !== false
+    };
+    const metaAttr = xmlEscape(JSON.stringify(meta));
+
+    return `<line x1="${a.x}" y1="${a.y}" x2="${b.x}" y2="${b.y}" stroke="${stroke}" stroke-width="2"${dashAttr} data-edge='${metaAttr}' />`;
+  }).filter(Boolean).join('\n    ');
+
+  const nodeEls = nodes.map(n => {
+    const fill = NODE_COLOR[n.type] || '#888';
+    const letter = NODE_LETTER[n.type] || '?';
+    const label = xmlEscape(n.label || '');
+    const meta = {
+      id: n.id,
+      type: n.type,
+      buildingId: n.buildingId,
+      floor: n.floor,
+      x: Math.round(n.x),
+      y: Math.round(n.y),
+      label: n.label || '',
+      accessible: n.accessible !== false,
+      metadata: n.metadata || {}
+    };
+    const metaAttr = xmlEscape(JSON.stringify(meta));
+    const labelEl = label
+      ? `<text x="${n.x}" y="${n.y + 22}" text-anchor="middle" font-family="system-ui, -apple-system, sans-serif" font-size="10" fill="#cdd6f4">${label}</text>`
+      : '';
+
+    return `<g data-node='${metaAttr}'>
+      <circle cx="${n.x}" cy="${n.y}" r="11" fill="${fill}" stroke="#1e1e2e" stroke-width="1.5" />
+      <text x="${n.x}" y="${n.y + 0.5}" text-anchor="middle" dominant-baseline="middle" font-family="system-ui, -apple-system, sans-serif" font-size="11" font-weight="700" fill="#ffffff">${xmlEscape(letter)}</text>
+      ${labelEl}
+    </g>`;
+  }).join('\n    ');
+
+  const sessionMeta = {
+    exportedAt: new Date().toISOString(),
+    buildingId: document.getElementById('def-building').value.trim() || 'bldg-1',
+    floor: activeFloor,
+    hasBackgroundImage: !!bgDataUrl
+  };
+
+  const bgImageEl = bgDataUrl
+    ? `<image href="${bgDataUrl}" x="0" y="0" width="${bgW}" height="${bgH}" preserveAspectRatio="xMinYMin meet" />`
+    : '';
+
+  const svg = `<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="${Math.max(1, Math.round(viewBoxW))}" height="${Math.max(1, Math.round(viewBoxH))}" viewBox="${viewBoxX} ${viewBoxY} ${viewBoxW} ${viewBoxH}">
+  <metadata>${xmlEscape(JSON.stringify({ meta: sessionMeta, nodes, edges }))}</metadata>
+  <g id="floor-plan-background">
+    ${bgImageEl}
+  </g>
+  <g id="nav-edges">
+    ${edgeLines}
+  </g>
+  <g id="nav-nodes">
+    ${nodeEls}
+  </g>
+</svg>`;
+
+  const floorSuffix = activeFloor !== null ? `-F${activeFloor}` : '';
+  const filename = `floor-nav${floorSuffix}.svg`;
+  const a = Object.assign(document.createElement('a'), {
+    href: URL.createObjectURL(new Blob([svg], { type: 'image/svg+xml;charset=utf-8' })),
+    download: filename
+  });
+  a.click();
+  setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+}
+
 function exportJSON() {
   const activeFloor = floorFilter.size === 1 ? [...floorFilter][0] : null;
   const visibleNodes = new Set(
@@ -1348,6 +1494,7 @@ document.getElementById('btn-img').addEventListener('click',    () => document.g
 document.getElementById('btn-load').addEventListener('click',   () => document.getElementById('in-json').click());
 document.getElementById('btn-merge').addEventListener('click',  () => document.getElementById('in-merge').click());
 document.getElementById('btn-export').addEventListener('click', exportJSON);
+document.getElementById('btn-export-svg').addEventListener('click', exportSVG);
 document.getElementById('btn-undo').addEventListener('click',   undo);
 document.getElementById('btn-redo').addEventListener('click',   redo);
 document.getElementById('tool-select').addEventListener('click',() => setTool('select'));
