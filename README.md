@@ -1,6 +1,10 @@
-DISCLAMER: All credit for this tool goes to @gabrielshufelt. I, @YehJordan did not contribute in any significant manner.
+# DISCLAMER
+
+All credit for this tool goes to @gabrielshufelt. I, @YehJordan did not contribute in any significant manner.
 
 This repo has a slightly modified version to add more possible types of nodes, such as Point of Interest and Escalator
+
+Please visit the original repo [here](https://github.com/gabrielshufelt/floor-plan-editor)
 
 # Floor Plan Nav Graph Editor
 
