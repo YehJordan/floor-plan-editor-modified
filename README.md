@@ -1,3 +1,7 @@
+DISCLAMER: All credit for this tool goes to @gabrielshufelt. I, @YehJordan did not contribute in any significant manner.
+
+This repo has a slightly modified version to add more possible types of nodes, such as Point of Interest and Escalator
+
 # Floor Plan Nav Graph Editor
 
 Lightweight tools for converting architectural floor plan images into navigable indoor maps. These tools were developed to help create navigation graphs for the campus exploration app, as part of SOEN 390.
